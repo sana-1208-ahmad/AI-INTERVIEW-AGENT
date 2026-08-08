@@ -75,20 +75,25 @@ export async function evaluateCandidateAnswer(
   question: InterviewQuestion,
   candidateAnswer: string,
   candidate: CandidateProfile,
-  previousHistory: QuestionAnswerRecord[]
+  previousHistory: QuestionAnswerRecord[],
+  steerConstraint?: string
 ): Promise<{
   score: number; // 0 - 100
   evaluationLabel: 'Excellent' | 'Good Answer' | 'Partial Answer' | 'Needs Improvement';
   feedback: string;
   idealKeyPointsCovered: string[];
   idealKeyPointsMissed: string[];
+  errorsIdentified: string[];
+  penaltyApplied: boolean;
   followUpProbe?: string;
 }> {
   const ai = getAiClient();
 
   if (ai) {
     try {
-      const prompt = `You are a Senior AI Lead and Technical Interviewer conducting an interview for the ABTalks 31-Day AI Engineering Cohort candidate: ${candidate.name}.
+      const prompt = `You are a Senior AI Lead and Technical Interviewer conducting a multi-turn adaptive technical interview for candidate ${candidate.name}.
+Your job is to evaluate the candidate's answer like a REAL, CONSTRUCTIVE, SENIOR HUMAN TECHNICAL INTERVIEWER.
+
 Question Topic: Day ${question.day} - ${question.topic} (${question.module})
 Question Text: "${question.questionText}"
 Expected Key Points to cover:
@@ -97,17 +102,35 @@ ${question.expectedKeyPoints.map((kp, idx) => `${idx + 1}. ${kp}`).join('\n')}
 Candidate's Submitted Answer:
 "${candidateAnswer}"
 
-Analyze the candidate's answer thoroughly against the technical expectations.
-Assess correctness, technical depth, accuracy of terminology, and problem-solving reasoning.
+SENIOR INTERVIEWER EVALUATION DIRECTIVES:
+1. HUMAN CONVERSATIONAL ACKNOWLEDGMENT:
+   - Speak like a real senior technical interviewer.
+   - If Correct: "That's correct. You clearly understand [concept]..."
+   - If Partially Correct: "You're on the right track, but missing [missing concept]..."
+   - If Incorrect or Short ("no", "I don't know", "not sure"): "That's not quite correct. You haven't demonstrated the core pattern yet. [Explain core correct behavior]. This is an area I'd recommend revising before proceeding."
+2. DIRECT, CONSTRUCTIVE FEEDBACK:
+   - Be constructive yet firm. Explain what was right, what was wrong, and the correct engineering behavior.
+   - Do NOT use robotic system jargon like "Score Penalty Applied" or "Branching Algorithm" in the feedback text.
+3. SCORING & TIER CLASSIFICATION:
+   - 80 - 100%: "Excellent" or "Good Answer" (Candidate demonstrated strong understanding of core concepts)
+   - 45 - 79%: "Partial Answer" (Candidate covered some key points but missed important aspects)
+   - 0 - 44%: "Needs Improvement" (Candidate's answer was incorrect, incomplete, off-topic, or too short like "no")
+4. EXPLICIT MISSING CONCEPTS & ERRORS:
+   - "idealKeyPointsCovered": Key points covered well.
+   - "idealKeyPointsMissed": Key points missed or stated incorrectly.
+   - "errorsIdentified": Explicit list of technical inaccuracies or missing essential concepts.
+${steerConstraint ? `5. ACTIVE JUDGE STEER CONSTRAINT INJECTED: "${steerConstraint}". Verify if candidate's response satisfies this constraint.` : ''}
 
-Return JSON adhering to this structure:
+Return JSON adhering strictly to this structure:
 {
   "score": number between 0 and 100,
   "evaluationLabel": "Excellent" or "Good Answer" or "Partial Answer" or "Needs Improvement",
-  "feedback": "2-3 concise sentences of constructive technical feedback directly addressing what they did well and what was missing or incorrect.",
-  "idealKeyPointsCovered": ["list of expected key points they covered well"],
-  "idealKeyPointsMissed": ["list of expected key points they missed or stated incorrectly"],
-  "followUpProbe": "Optional 1-sentence probing follow-up question if they gave a partial or interesting answer, otherwise empty string"
+  "errorsIdentified": ["list of exact technical errors or false claims found"],
+  "penaltyApplied": boolean (true if score capped under 45% due to errors/short answer, false otherwise),
+  "feedback": "2-3 conversational, senior-interviewer sentences explaining what was correct, what was missing, and recommended revision action.",
+  "idealKeyPointsCovered": ["list of expected key points covered well"],
+  "idealKeyPointsMissed": ["list of expected key points missed or stated incorrectly"],
+  "followUpProbe": "Natural follow-up statement or question probing the missing concept or building towards deeper application"
 }`;
 
       const response = await generateContentWithRetry(ai, {
@@ -121,33 +144,50 @@ Return JSON adhering to this structure:
             properties: {
               score: { type: Type.INTEGER, description: "Score from 0 to 100" },
               evaluationLabel: { type: Type.STRING, description: "Excellent, Good Answer, Partial Answer, or Needs Improvement" },
-              feedback: { type: Type.STRING, description: "Constructive feedback" },
+              errorsIdentified: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Explicit list of exact technical errors or false claims" },
+              penaltyApplied: { type: Type.BOOLEAN, description: "True if penalty capped score under 40%" },
+              feedback: { type: Type.STRING, description: "Direct, zero-sycophancy technical feedback" },
               idealKeyPointsCovered: { type: Type.ARRAY, items: { type: Type.STRING } },
               idealKeyPointsMissed: { type: Type.ARRAY, items: { type: Type.STRING } },
               followUpProbe: { type: Type.STRING, description: "Probing follow-up question" }
             },
-            required: ["score", "evaluationLabel", "feedback", "idealKeyPointsCovered", "idealKeyPointsMissed"]
+            required: ["score", "evaluationLabel", "errorsIdentified", "penaltyApplied", "feedback", "idealKeyPointsCovered", "idealKeyPointsMissed"]
           }
         }
       });
 
       if (response.text) {
         const parsed = JSON.parse(response.text.trim());
-        const validLabel = (['Excellent', 'Good Answer', 'Partial Answer', 'Needs Improvement'].includes(parsed.evaluationLabel))
-          ? parsed.evaluationLabel
-          : (parsed.score >= 85 ? 'Excellent' : parsed.score >= 70 ? 'Good Answer' : parsed.score >= 50 ? 'Partial Answer' : 'Needs Improvement');
+        const rawErrors: string[] = Array.isArray(parsed.errorsIdentified) ? parsed.errorsIdentified : (Array.isArray(parsed.errors_identified) ? parsed.errors_identified : []);
+        let penaltyApplied = Boolean(parsed.penaltyApplied || parsed.penalty_applied || rawErrors.length > 0 || (typeof parsed.score === 'number' && parsed.score < 40));
+        let finalScore = typeof parsed.score === 'number' ? parsed.score : 70;
+
+        if (rawErrors.length > 0 || penaltyApplied) {
+          finalScore = Math.min(39, Math.max(0, finalScore));
+          penaltyApplied = true;
+        }
+
+        const validLabel = (finalScore < 40)
+          ? 'Needs Improvement'
+          : (['Excellent', 'Good Answer', 'Partial Answer', 'Needs Improvement'].includes(parsed.evaluationLabel)
+            ? parsed.evaluationLabel
+            : (finalScore >= 85 ? 'Excellent' : finalScore >= 70 ? 'Good Answer' : 'Partial Answer'));
 
         return {
-          score: Math.min(100, Math.max(0, parsed.score || 75)),
+          score: finalScore,
           evaluationLabel: validLabel,
-          feedback: parsed.feedback || "Good response covering key technical aspects.",
-          idealKeyPointsCovered: parsed.idealKeyPointsCovered || question.expectedKeyPoints.slice(0, 3),
-          idealKeyPointsMissed: parsed.idealKeyPointsMissed || [],
+          feedback: parsed.feedback || (penaltyApplied
+            ? `Technical penalty applied: Candidate answer contained incorrect statements regarding ${question.topic}.`
+            : "Direct technical feedback provided."),
+          idealKeyPointsCovered: parsed.idealKeyPointsCovered || [],
+          idealKeyPointsMissed: parsed.idealKeyPointsMissed || question.expectedKeyPoints,
+          errorsIdentified: rawErrors,
+          penaltyApplied,
           followUpProbe: parsed.followUpProbe || undefined
         };
       }
     } catch (err) {
-      console.log("[Evaluation Engine] Using local heuristic scoring engine (API rate limit or key fallback).");
+      console.log("[Evaluation Engine] Using local heuristic scoring engine with penalty guardrails.");
     }
   }
 
@@ -170,7 +210,14 @@ Return JSON adhering to this structure:
 
   const lengthBonus = Math.min(20, Math.floor(candidateAnswer.length / 15));
   const rawScore = Math.min(100, Math.round((matchedCount / (question.expectedKeyPoints.length || 1)) * 80 + lengthBonus));
-  const finalScore = candidateAnswer.trim().length < 10 ? 25 : rawScore;
+  const isShortOrOff = candidateAnswer.trim().length < 15 || matchedCount === 0;
+  
+  const errorsIdentified: string[] = isShortOrOff
+    ? [`Candidate answer failed to provide correct technical details for ${question.topic}`, `Answer lacked essential required concepts (${missed.slice(0, 2).join(', ')})`]
+    : [];
+  
+  const penaltyApplied = isShortOrOff || rawScore < 40;
+  const finalScore = penaltyApplied ? Math.min(35, rawScore) : rawScore;
 
   let label: 'Excellent' | 'Good Answer' | 'Partial Answer' | 'Needs Improvement' = 'Needs Improvement';
   if (finalScore >= 85) label = 'Excellent';
@@ -180,12 +227,16 @@ Return JSON adhering to this structure:
   return {
     score: finalScore,
     evaluationLabel: label,
-    feedback: finalScore >= 75
-      ? `Strong answer! You demonstrated solid understanding of ${question.topic}. You accurately addressed ${covered.length} key concepts.`
-      : `Partial explanation. To improve, ensure you elaborate on ${missed[0] || 'core architectural trade-offs'} and provide specific code or parameter examples.`,
-    idealKeyPointsCovered: covered.length > 0 ? covered : [question.expectedKeyPoints[0]],
+    feedback: penaltyApplied
+      ? `That's not quite correct. You haven't demonstrated the core pattern for ${question.topic} yet. In production, ${question.expectedKeyPoints[0] || question.topic} requires clear execution mechanics. I'd recommend revising this topic before moving forward.`
+      : `Solid technical response addressing ${covered.length} expected key points for ${question.topic}.`,
+    idealKeyPointsCovered: covered.length > 0 ? covered : [],
     idealKeyPointsMissed: missed,
-    followUpProbe: finalScore < 80 ? `How would you handle this if scale grew to 10 million items in production?` : undefined
+    errorsIdentified,
+    penaltyApplied,
+    followUpProbe: penaltyApplied
+      ? `Can you clarify the fundamental difference between ${question.expectedKeyPoints[0] || 'core concepts'} and standard approaches?`
+      : undefined
   };
 }
 
@@ -193,7 +244,8 @@ export async function generateNextAdaptiveQuestion(
   candidate: CandidateProfile,
   askedQuestionsHistory: QuestionAnswerRecord[],
   questionIndex: number,
-  targetTotalQuestions: number = 8
+  targetTotalQuestions: number = 8,
+  steerConstraint?: string
 ): Promise<InterviewQuestion> {
   const askedDays = new Set(askedQuestionsHistory.map(q => q.day));
   const askedQuestionTexts = new Set(askedQuestionsHistory.map(q => q.questionText.toLowerCase()));
@@ -204,35 +256,72 @@ export async function generateNextAdaptiveQuestion(
   const daysStillNeeded = requiredUniqueDaysCount - askedDays.size;
   const forceNewDay = daysStillNeeded > 0 && daysLeftToAsk <= daysStillNeeded;
 
-  // Determine candidate completed vs skipped topics
-  let candidateTargetDays = candidate.completedDays.filter(d => !askedDays.has(d));
-  if (candidateTargetDays.length === 0 || forceNewDay) {
-    const unvisitedGlobal = CURRICULUM_DATA.map(d => d.day).filter(d => !askedDays.has(d));
-    if (unvisitedGlobal.length > 0) {
-      candidateTargetDays = unvisitedGlobal;
-    } else {
-      candidateTargetDays = CURRICULUM_DATA.map(d => d.day);
-    }
-  }
-
-  // Pick a target curriculum day
-  const targetDayNum = candidateTargetDays[Math.floor(Math.random() * candidateTargetDays.length)];
-  const curriculumObj = CURRICULUM_DATA.find(c => c.day === targetDayNum) || CURRICULUM_DATA[0];
-
-  // Evaluate branching triggers from last turn score
+  let targetDayNum: number;
   let branchingDirective = "";
   let lastScore = 75;
+
   if (askedQuestionsHistory.length > 0) {
     const lastRecord = askedQuestionsHistory[askedQuestionsHistory.length - 1];
     lastScore = lastRecord.score;
-    if (lastScore > 80) {
-      branchingDirective = `BRANCHING TRIGGER (HIGH SCORE >80%): The candidate scored ${lastScore}% on the previous question. Dive deeper into low-level architectural details (e.g. memory footprint, vector compression, protocols, internal mechanics, edge cases, and performance optimizations).`;
-    } else if (lastScore < 50) {
-      branchingDirective = `BRANCHING TRIGGER (LOW SCORE <50%): The candidate scored ${lastScore}% on the previous question. Ask a conceptual, simplifying follow-up question that clarifies core fundamentals and scaffolds basic principles before escalating difficulty.`;
-    } else {
-      branchingDirective = `BRANCHING TRIGGER (MODERATE SCORE ${lastScore}%): Candidate showed partial understanding. Maintain a balanced technical scenario examining practical engineering trade-offs.`;
+
+    // Count how many consecutive turns have been spent on the same day
+    let consecutiveSameDayCount = 0;
+    for (let i = askedQuestionsHistory.length - 1; i >= 0; i--) {
+      if (askedQuestionsHistory[i].day === lastRecord.day) {
+        consecutiveSameDayCount++;
+      } else {
+        break;
+      }
     }
+
+    const isWeakOrPartial = lastRecord.score < 65 ||
+      lastRecord.evaluationLabel === 'Needs Improvement' ||
+      lastRecord.evaluationLabel === 'Partial Answer' ||
+      (lastRecord.errorsIdentified && lastRecord.errorsIdentified.length > 0);
+
+    // TOPIC CONTINUITY RULE:
+    // If the candidate gave a weak/partial answer AND we haven't asked 3 times on this topic AND we don't need to force a new day for minimum curriculum coverage:
+    // STAY ON THE SAME DAY!
+    if (isWeakOrPartial && consecutiveSameDayCount < 3 && !forceNewDay) {
+      targetDayNum = lastRecord.day;
+      const missedConcepts = lastRecord.idealKeyPointsMissed && lastRecord.idealKeyPointsMissed.length > 0
+        ? lastRecord.idealKeyPointsMissed.join(', ')
+        : 'foundational mechanics';
+
+      branchingDirective = `SAME TOPIC PROBING DIRECTIVE: The candidate gave an incomplete or incorrect answer on Day ${lastRecord.day} (${lastRecord.topic}) [Attempt ${consecutiveSameDayCount} of max 3]. Do NOT switch to a different curriculum day yet. STAY ON Day ${lastRecord.day} (${lastRecord.topic}). Ask a targeted, simpler foundational follow-up question specifically probing their missing concept (${missedConcepts}) or asking them to explain the basic mechanics of ${lastRecord.topic} before advancing.`;
+    } else if (isWeakOrPartial && consecutiveSameDayCount >= 3) {
+      // Failed 3 times on the same topic -> Mark knowledge gap and transition to a new day
+      let candidateTargetDays = candidate.completedDays.filter(d => !askedDays.has(d));
+      if (candidateTargetDays.length === 0 || forceNewDay) {
+        const unvisitedGlobal = CURRICULUM_DATA.map(d => d.day).filter(d => !askedDays.has(d));
+        candidateTargetDays = unvisitedGlobal.length > 0 ? unvisitedGlobal : CURRICULUM_DATA.map(d => d.day);
+      }
+      targetDayNum = candidateTargetDays[Math.floor(Math.random() * candidateTargetDays.length)];
+
+      branchingDirective = `MAX ATTEMPTS TRANSITION DIRECTIVE: Candidate struggled with Day ${lastRecord.day} (${lastRecord.topic}) after ${consecutiveSameDayCount} attempts. Acknowledge that this topic will be flagged as a knowledge gap for revision, and smoothly transition to a new curriculum day (Day ${targetDayNum}).`;
+    } else {
+      // Strong answer or completed topic -> Advance to new curriculum day
+      let candidateTargetDays = candidate.completedDays.filter(d => !askedDays.has(d));
+      if (candidateTargetDays.length === 0 || forceNewDay) {
+        const unvisitedGlobal = CURRICULUM_DATA.map(d => d.day).filter(d => !askedDays.has(d));
+        candidateTargetDays = unvisitedGlobal.length > 0 ? unvisitedGlobal : CURRICULUM_DATA.map(d => d.day);
+      }
+      targetDayNum = candidateTargetDays[Math.floor(Math.random() * candidateTargetDays.length)];
+
+      if (lastRecord.score >= 85) {
+        branchingDirective = `HIGH MASTERY DIRECTIVE: Candidate scored ${lastRecord.score}% on Day ${lastRecord.day} (${lastRecord.topic}). Transition to Day ${targetDayNum} with an advanced, scenario-based question probing production constraints and engineering trade-offs.`;
+      } else {
+        branchingDirective = `STANDARD PROGRESSION DIRECTIVE: Transition to Day ${targetDayNum} with a balanced technical question examining core engineering mechanics and practical scenarios.`;
+      }
+    }
+  } else {
+    // Turn 1: Select initial question
+    const candidateTargetDays = candidate.completedDays.length > 0 ? candidate.completedDays : [1, 5, 8, 12, 18, 20];
+    targetDayNum = candidateTargetDays[Math.floor(Math.random() * candidateTargetDays.length)];
+    branchingDirective = `INITIAL QUESTION DIRECTIVE: Welcome candidate ${candidate.name} and ask an opening technical question for Day ${targetDayNum}.`;
   }
+
+  const curriculumObj = CURRICULUM_DATA.find(c => c.day === targetDayNum) || CURRICULUM_DATA[0];
 
   // Construct full conversation history summary for multi-turn context
   const fullHistoryContext = askedQuestionsHistory.length > 0
@@ -253,6 +342,7 @@ Key Concepts: ${curriculumObj.keyConcepts.join(', ')}
 
 Adaptive Branching Directive:
 ${branchingDirective}
+${steerConstraint ? `\nACTIVE JUDGE STEER CONSTRAINT INJECTED: "${steerConstraint}". Frame this question to explicitly test the candidate's understanding and capability regarding this constraint.` : ''}
 
 Full Previous Conversation History & Signals:
 ${fullHistoryContext}
@@ -298,7 +388,7 @@ Return JSON adhering strictly to this schema:
           module: curriculumObj.module,
           topic: curriculumObj.topic,
           questionText: parsed.questionText,
-          difficulty: (['Easy', 'Medium', 'Hard'].includes(parsed.difficulty) ? parsed.difficulty : (lastScore > 80 ? 'Hard' : lastScore < 50 ? 'Easy' : 'Medium')) as any,
+          difficulty: (lastScore < 50 ? 'Easy' : (['Easy', 'Medium', 'Hard'].includes(parsed.difficulty) ? parsed.difficulty : (lastScore > 80 ? 'Hard' : 'Medium'))) as any,
           type: (['Conceptual', 'Coding', 'System Design', 'Practical'].includes(parsed.type) ? parsed.type : 'Conceptual') as any,
           expectedKeyPoints: parsed.expectedKeyPoints || curriculumObj.learningObjectives,
           sampleIdealAnswer: parsed.sampleIdealAnswer || `Ideal answer covering ${curriculumObj.topic}.`

@@ -35,6 +35,7 @@ interface DeveloperControlPanelProps {
   onSelectPreset: (presetType: 'high_performer' | 'needs_remediation' | 'edge_case') => void;
   onFastForwardTurn8: (presetType: 'high_performer' | 'needs_remediation' | 'edge_case') => void;
   onCleanReset: () => void;
+  onApplySteerConstraint?: (constraint: string) => void;
   activeSession: InterviewSession | null;
   selectedCandidate: CandidateProfile;
 }
@@ -45,6 +46,7 @@ export const DeveloperControlPanel: React.FC<DeveloperControlPanelProps> = ({
   onSelectPreset,
   onFastForwardTurn8,
   onCleanReset,
+  onApplySteerConstraint,
   activeSession,
   selectedCandidate
 }) => {
@@ -99,11 +101,17 @@ export const DeveloperControlPanel: React.FC<DeveloperControlPanelProps> = ({
     e.preventDefault();
     if (!customSteerPrompt.trim()) return;
 
+    const constraintText = customSteerPrompt.trim();
+
+    if (onApplySteerConstraint) {
+      onApplySteerConstraint(constraintText);
+    }
+
     const newLog: SteerLogEntry = {
       id: `log-${Date.now()}`,
       timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      prompt: customSteerPrompt.trim(),
-      adaptationStrategy: `[Gemini 3.6 Flash Adaptation] Rule injected into active interview engine: "${customSteerPrompt.trim()}". System prompt re-aligned instantly.`,
+      prompt: constraintText,
+      adaptationStrategy: `[Gemini 3.6 Flash Adaptation] Rule injected into active interview engine: "${constraintText}". System prompt re-aligned instantly.`,
       status: 'ACTIVE'
     };
 

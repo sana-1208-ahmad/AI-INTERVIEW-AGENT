@@ -1,23 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import confetti from 'canvas-confetti';
+import { motion, AnimatePresence } from 'motion/react';
 import { ThemeProvider } from './context/ThemeContext';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { LandingPage } from './components/LandingPage';
-import { DashboardView } from './components/DashboardView';
-import { CandidateProfileView } from './components/CandidateProfileView';
-import { CurriculumView } from './components/CurriculumView';
-import { InterviewScreen } from './components/InterviewScreen';
-import { InterviewReportView } from './components/InterviewReportView';
-import { MyInterviewsView } from './components/MyInterviewsView';
-import { AnalyticsView } from './components/AnalyticsView';
-import { SettingsView } from './components/SettingsView';
-import { TechSpecModal } from './components/TechSpecModal';
-import { AuthModal } from './components/AuthModal';
-import { DeveloperControlPanel } from './components/DeveloperControlPanel';
 
 import { CANDIDATE_PROFILES } from './data/candidateProfiles';
 import { CandidateProfile, InterviewSession, FinalReport } from './types';
+
+// Lazy-loaded view components for bundle splitting & instant page transitions
+const DashboardView = lazy(() => import('./components/DashboardView').then(m => ({ default: m.DashboardView })));
+const CandidateProfileView = lazy(() => import('./components/CandidateProfileView').then(m => ({ default: m.CandidateProfileView })));
+const CurriculumView = lazy(() => import('./components/CurriculumView').then(m => ({ default: m.CurriculumView })));
+const InterviewScreen = lazy(() => import('./components/InterviewScreen').then(m => ({ default: m.InterviewScreen })));
+const InterviewReportView = lazy(() => import('./components/InterviewReportView').then(m => ({ default: m.InterviewReportView })));
+const MyInterviewsView = lazy(() => import('./components/MyInterviewsView').then(m => ({ default: m.MyInterviewsView })));
+const AnalyticsView = lazy(() => import('./components/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
+const SettingsView = lazy(() => import('./components/SettingsView').then(m => ({ default: m.SettingsView })));
+const TechSpecModal = lazy(() => import('./components/TechSpecModal').then(m => ({ default: m.TechSpecModal })));
+const DeveloperControlPanel = lazy(() => import('./components/DeveloperControlPanel').then(m => ({ default: m.DeveloperControlPanel })));
+const AuthModal = lazy(() => import('./components/AuthModal').then(m => ({ default: m.AuthModal })));
+
+const ViewFallback = () => (
+  <div className="w-full h-64 flex flex-col items-center justify-center p-8 space-y-3">
+    <div className="w-8 h-8 border-3 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+    <span className="text-xs font-semibold dark:text-slate-400 text-slate-500">Loading view...</span>
+  </div>
+);
 
 export function AppContent() {
   const [currentView, setCurrentView] = useState<string>('landing');
@@ -67,7 +77,7 @@ export function AppContent() {
     setSelectedCandidate(cand);
 
     let score = 94;
-    let gradeLabel = "Excellent";
+    let gradeLabel: 'Mastery' | 'Excellent' | 'Competent' | 'Needs Revision' = "Excellent";
     let strengths = [
       "Deep technical mastery of RAG & HNSW vector indexing math",
       "Flawless FastMCP bearer authorization & tool schema definition",
@@ -84,7 +94,7 @@ export function AppContent() {
 
     if (presetType === 'needs_remediation') {
       score = 58;
-      gradeLabel = "Needs Remediation";
+      gradeLabel = "Needs Revision";
       strengths = [
         "Basic understanding of text embeddings and prompt structure",
         "Enthusiastic learning approach to AI engineering topics"
@@ -138,11 +148,11 @@ export function AppContent() {
         module: `Module ${Math.floor(i / 2) + 1}`,
         topic: ["LLM Architecture", "Vector Databases", "RAG Pipeline", "FastMCP Tools", "Fine-Tuning", "Agent Loops", "Guardrails", "Deployment"][i],
         questionText: `Technical evaluation question ${i + 1} on AI cohort curriculum topic ${i + 1}.`,
-        difficulty: i < 3 ? "Medium" : i < 6 ? "Hard" : "Expert",
-        type: i % 2 === 0 ? "Conceptual" : "Code/Design",
+        difficulty: i < 3 ? "Easy" : i < 6 ? "Medium" : "Hard",
+        type: i % 2 === 0 ? "Conceptual" : "Coding",
         candidateAnswer: `Evaluated candidate answer demonstrating response logic for turn ${i + 1}.`,
         score: Math.min(100, Math.max(40, score + (i % 2 === 0 ? 3 : -3))),
-        evaluationLabel: score >= 85 ? "Excellent" : score >= 70 ? "Good" : "Needs Review",
+        evaluationLabel: score >= 85 ? "Excellent" : score >= 70 ? "Good Answer" : "Needs Improvement",
         feedback: `Detailed Gemini Flash evaluation for Turn ${i + 1}.`,
         followUpTriggered: i % 3 === 0,
         idealKeyPointsCovered: ["Core AI Engineering concept", "Production pattern"],
@@ -170,6 +180,29 @@ export function AppContent() {
     setActiveReport(null);
     setInterviewRecords([]);
     setCurrentView('dashboard');
+  };
+
+  // Steer Constraint Handler
+  const handleApplySteerConstraint = async (constraint: string) => {
+    if (activeSession) {
+      setActiveSession(prev => prev ? {
+        ...prev,
+        activeSteerConstraint: constraint
+      } : null);
+
+      try {
+        await fetch('/api/v1/interview/steer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interview_id: activeSession.id,
+            steer_constraint: constraint
+          })
+        });
+      } catch (err) {
+        console.warn("Error sending steer constraint to API:", err);
+      }
+    }
   };
 
   // Fetch Candidates from API on mount
@@ -213,15 +246,52 @@ export function AppContent() {
     setIsAuthModalOpen(true);
   };
 
-  // Start Interview Action
+  // Start Interview Action (Instant Navigation + Async Question Generation)
   const handleStartInterview = async (candidateId?: string) => {
     if (!isAuthenticated) {
       handleOpenLogin();
       return;
     }
 
-    setIsLoading(true);
     const targetCandId = candidateId || selectedCandidate.id;
+    const targetCand = candidatesList.find(c => c.id === targetCandId) || selectedCandidate;
+
+    // 1. Construct instant initial session object with blueprint defaults
+    const pendingSessionId = `intv-${Date.now()}`;
+    const initialSessionObj: InterviewSession = {
+      id: pendingSessionId,
+      candidateId: targetCandId,
+      candidateName: targetCand.name,
+      candidateAvatar: targetCand.avatar,
+      startTime: new Date().toISOString(),
+      status: 'in_progress',
+      currentQuestionIndex: 0,
+      totalQuestions: 8,
+      daysCovered: [12],
+      currentQuestion: {
+        id: 'q1-initial',
+        day: 12,
+        module: 'Module 2: RAG Systems & Vector Databases',
+        topic: 'Prompt Engineering & System Directives',
+        questionText: `Candidate ${targetCand.name}, welcome to your technical evaluation. How do you design multi-turn prompt directives with strict JSON schemas while preventing hallucination in high-throughput enterprise pipelines?`,
+        difficulty: 'Easy',
+        type: 'Conceptual',
+        expectedKeyPoints: [
+          'Strict schema validation using Pydantic / Zod',
+          'Few-shot exemplar integration',
+          'System directive isolation and boundary parameters'
+        ],
+        sampleIdealAnswer: 'An enterprise multi-turn prompt directive should enforce Pydantic/Zod schemas, provide targeted few-shot examples, isolate system instructions, and enforce deterministic output constraints.'
+      },
+      transcript: [],
+      interviewerNotes: `Interview active for ${targetCand.name}. Evaluating technical competency.`
+    };
+
+    // 2. IMMEDIATE NAVIGATE TO INTERVIEW SCREEN (<10ms response!)
+    setActiveSession(initialSessionObj);
+    setCurrentView('interview');
+
+    // 3. In parallel background, trigger backend API session creation
     try {
       const res = await fetch('/api/v1/interview/start', {
         method: 'POST',
@@ -230,29 +300,16 @@ export function AppContent() {
       });
       const data = await res.json();
       if (data.status === 'success' && data.interview_id) {
-        // Construct session object
-        const sessionObj: InterviewSession = {
+        setActiveSession(prev => prev ? {
+          ...prev,
           id: data.interview_id,
-          candidateId: targetCandId,
-          candidateName: selectedCandidate.name,
-          candidateAvatar: selectedCandidate.avatar,
-          startTime: new Date().toISOString(),
-          status: 'in_progress',
-          currentQuestionIndex: 0,
-          totalQuestions: data.session.total_questions || 8,
-          daysCovered: data.session.days_covered || [data.question.day],
-          currentQuestion: data.question,
-          transcript: [],
-          interviewerNotes: `Interview active for ${selectedCandidate.name}. Evaluating technical competency.`
-        };
-
-        setActiveSession(sessionObj);
-        setCurrentView('interview');
+          totalQuestions: data.session?.total_questions || 8,
+          daysCovered: data.session?.days_covered || [data.question.day],
+          currentQuestion: data.question || prev.currentQuestion
+        } : null);
       }
     } catch (err) {
-      console.error("Error starting interview via API:", err);
-    } finally {
-      setIsLoading(false);
+      console.warn("API interview/start background warning:", err);
     }
   };
 
@@ -459,132 +516,145 @@ export function AppContent() {
 
           {/* Main Content View Container */}
           <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
-            {currentView === 'dashboard' && (
-              <DashboardView
-                selectedCandidate={selectedCandidate}
-                setSelectedCandidate={setSelectedCandidate}
-                candidatesList={candidatesList}
-                interviewRecords={interviewRecords}
-                onStartInterview={(candId) => handleStartInterview(candId)}
-                onViewReport={handleViewReport}
-                onNavigateToCurriculum={() => setCurrentView('curriculum')}
-              />
-            )}
+            <AnimatePresence mode="sync">
+              <motion.div
+                key={currentView}
+                initial={{ opacity: 0, scale: 0.995 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.995 }}
+                transition={{ duration: 0.12, ease: "easeOut" }}
+                className="w-full h-full"
+              >
+                <Suspense fallback={<ViewFallback />}>
+                  {currentView === 'dashboard' && (
+                    <DashboardView
+                      selectedCandidate={selectedCandidate}
+                      setSelectedCandidate={setSelectedCandidate}
+                      candidatesList={candidatesList}
+                      interviewRecords={interviewRecords}
+                      onStartInterview={(candId) => handleStartInterview(candId)}
+                      onViewReport={handleViewReport}
+                      onNavigateToCurriculum={() => setCurrentView('curriculum')}
+                    />
+                  )}
 
-            {currentView === 'candidates' && (
-              <CandidateProfileView
-                selectedCandidate={selectedCandidate}
-                setSelectedCandidate={setSelectedCandidate}
-                candidatesList={candidatesList}
-                onStartInterviewForCandidate={(candId) => handleStartInterview(candId)}
-                onAddCandidate={(newCand) => {
-                  setCandidatesList(prev => [newCand, ...prev]);
-                  setSelectedCandidate(newCand);
-                }}
-              />
-            )}
+                  {currentView === 'candidates' && (
+                    <CandidateProfileView
+                      selectedCandidate={selectedCandidate}
+                      setSelectedCandidate={setSelectedCandidate}
+                      candidatesList={candidatesList}
+                      onStartInterviewForCandidate={(candId) => handleStartInterview(candId)}
+                      onAddCandidate={(newCand) => {
+                        setCandidatesList(prev => [newCand, ...prev]);
+                        setSelectedCandidate(newCand);
+                      }}
+                    />
+                  )}
 
-            {currentView === 'curriculum' && (
-              <CurriculumView
-                selectedCandidate={selectedCandidate}
-                onStartInterviewForDay={() => handleStartInterview()}
-                onToggleDayStatus={(dayNum, status) => {
-                  setCandidatesList(prevList =>
-                    prevList.map(cand => {
-                      if (cand.id !== selectedCandidate.id) return cand;
-                      let newCompleted = cand.completedDays.filter(d => d !== dayNum);
-                      let newSkipped = cand.skippedDays.filter(d => d !== dayNum);
+                  {currentView === 'curriculum' && (
+                    <CurriculumView
+                      selectedCandidate={selectedCandidate}
+                      onStartInterviewForDay={() => handleStartInterview()}
+                      onToggleDayStatus={(dayNum, status) => {
+                        setCandidatesList(prevList =>
+                          prevList.map(cand => {
+                            if (cand.id !== selectedCandidate.id) return cand;
+                            let newCompleted = cand.completedDays.filter(d => d !== dayNum);
+                            let newSkipped = cand.skippedDays.filter(d => d !== dayNum);
 
-                      if (status === 'completed') {
-                        newCompleted.push(dayNum);
-                      } else if (status === 'skipped') {
-                        newSkipped.push(dayNum);
-                      }
+                            if (status === 'completed') {
+                              newCompleted.push(dayNum);
+                            } else if (status === 'skipped') {
+                              newSkipped.push(dayNum);
+                            }
 
-                      const updatedCand = {
-                        ...cand,
-                        completedDays: newCompleted.sort((a, b) => a - b),
-                        skippedDays: newSkipped.sort((a, b) => a - b)
-                      };
+                            const updatedCand = {
+                              ...cand,
+                              completedDays: newCompleted.sort((a, b) => a - b),
+                              skippedDays: newSkipped.sort((a, b) => a - b)
+                            };
 
-                      setSelectedCandidate(updatedCand);
-                      return updatedCand;
-                    })
-                  );
-                }}
-              />
-            )}
+                            setSelectedCandidate(updatedCand);
+                            return updatedCand;
+                          })
+                        );
+                      }}
+                    />
+                  )}
 
-            {currentView === 'interview' && activeSession && (
-              <InterviewScreen
-                session={activeSession}
-                onSubmitAnswer={handleSubmitAnswer}
-                onEndInterview={() => setCurrentView('dashboard')}
-                isLoading={isLoading}
-                selectedCandidate={selectedCandidate}
-              />
-            )}
+                  {currentView === 'interview' && activeSession && (
+                    <InterviewScreen
+                      session={activeSession}
+                      onSubmitAnswer={handleSubmitAnswer}
+                      onEndInterview={() => setCurrentView('dashboard')}
+                      isLoading={isLoading}
+                      selectedCandidate={selectedCandidate}
+                    />
+                  )}
 
-            {currentView === 'report' && activeReport && (
-              <InterviewReportView
-                report={activeReport}
-                onBackToDashboard={() => setCurrentView('dashboard')}
-              />
-            )}
+                  {currentView === 'report' && activeReport && (
+                    <InterviewReportView
+                      report={activeReport}
+                      onBackToDashboard={() => setCurrentView('dashboard')}
+                    />
+                  )}
 
-            {currentView === 'my-interviews' && (
-              <MyInterviewsView
-                selectedCandidate={selectedCandidate}
-                interviewRecords={interviewRecords}
-                onViewReport={handleViewReport}
-                onStartNewInterview={() => handleStartInterview()}
-              />
-            )}
+                  {currentView === 'my-interviews' && (
+                    <MyInterviewsView
+                      selectedCandidate={selectedCandidate}
+                      interviewRecords={interviewRecords}
+                      onViewReport={handleViewReport}
+                      onStartNewInterview={() => handleStartInterview()}
+                    />
+                  )}
 
-            {currentView === 'analytics' && (
-              <AnalyticsView
-                selectedCandidate={selectedCandidate}
-                interviewRecords={interviewRecords}
-                onStartNewInterview={() => handleStartInterview()}
-              />
-            )}
+                  {currentView === 'analytics' && (
+                    <AnalyticsView
+                      selectedCandidate={selectedCandidate}
+                      interviewRecords={interviewRecords}
+                      onStartNewInterview={() => handleStartInterview()}
+                    />
+                  )}
 
-            {currentView === 'settings' && (
-              <SettingsView
-                selectedCandidate={selectedCandidate}
-                onUpdateCandidateProfile={(updated) => {
-                  setCandidatesList(prevList =>
-                    prevList.map(cand => {
-                      if (cand.id !== selectedCandidate.id) return cand;
-                      const updatedCand = { ...cand, ...updated };
-                      setSelectedCandidate(updatedCand);
-                      return updatedCand;
-                    })
-                  );
-                }}
-                onResetAllData={() => {
-                  setInterviewRecords([]);
-                  setActiveReport(null);
-                  setActiveSession(null);
-                  setCandidatesList(prev =>
-                    prev.map(cand => ({
-                      ...cand,
-                      completedDays: [],
-                      skippedDays: [],
-                      attemptsCount: 0,
-                      avgScore: 0
-                    }))
-                  );
-                  setSelectedCandidate(prev => ({
-                    ...prev,
-                    completedDays: [],
-                    skippedDays: [],
-                    attemptsCount: 0,
-                    avgScore: 0
-                  }));
-                }}
-              />
-            )}
+                  {currentView === 'settings' && (
+                    <SettingsView
+                      selectedCandidate={selectedCandidate}
+                      onUpdateCandidateProfile={(updated) => {
+                        setCandidatesList(prevList =>
+                          prevList.map(cand => {
+                            if (cand.id !== selectedCandidate.id) return cand;
+                            const updatedCand = { ...cand, ...updated };
+                            setSelectedCandidate(updatedCand);
+                            return updatedCand;
+                          })
+                        );
+                      }}
+                      onResetAllData={() => {
+                        setInterviewRecords([]);
+                        setActiveReport(null);
+                        setActiveSession(null);
+                        setCandidatesList(prev =>
+                          prev.map(cand => ({
+                            ...cand,
+                            completedDays: [],
+                            skippedDays: [],
+                            attemptsCount: 0,
+                            avgScore: 0
+                          }))
+                        );
+                        setSelectedCandidate(prev => ({
+                          ...prev,
+                          completedDays: [],
+                          skippedDays: [],
+                          attemptsCount: 0,
+                          avgScore: 0
+                        }));
+                      }}
+                    />
+                  )}
+                </Suspense>
+              </motion.div>
+            </AnimatePresence>
           </main>
         </div>
       )}
@@ -602,6 +672,7 @@ export function AppContent() {
         onSelectPreset={handleSelectPreset}
         onFastForwardTurn8={handleFastForwardTurn8}
         onCleanReset={handleCleanReset}
+        onApplySteerConstraint={handleApplySteerConstraint}
         activeSession={activeSession}
         selectedCandidate={selectedCandidate}
       />

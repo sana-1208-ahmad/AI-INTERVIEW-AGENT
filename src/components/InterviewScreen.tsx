@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Sparkles,
   Send,
@@ -20,8 +21,11 @@ import {
   Target,
   FileCheck,
   ShieldAlert,
+  AlertTriangle,
   Play,
-  Cpu
+  Cpu,
+  Database,
+  Activity
 } from 'lucide-react';
 import { InterviewSession, CandidateProfile } from '../types';
 
@@ -333,6 +337,24 @@ export const InterviewScreen: React.FC<InterviewScreenProps> = ({
         </div>
       </div>
 
+      {/* Active Judge Steer Constraint Banner */}
+      {session.activeSteerConstraint && (
+        <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-950/80 to-indigo-950/80 border border-purple-500/40 text-purple-200 text-xs font-semibold flex items-center justify-between gap-3 shadow-lg shadow-purple-500/10 animate-fade-in">
+          <div className="flex items-center gap-2.5">
+            <span className="px-2.5 py-1 rounded-lg bg-purple-500 text-white font-mono text-[10px] font-black uppercase tracking-wider shadow-sm">
+              ⚡ JUDGE STEER INJECTED
+            </span>
+            <span className="font-bold text-purple-200 dark:text-purple-100">
+              "{session.activeSteerConstraint}"
+            </span>
+          </div>
+          <span className="text-[11px] font-mono text-purple-300 font-bold shrink-0 flex items-center gap-1">
+            <Sparkles className="w-3 h-3 text-purple-400 animate-spin" />
+            Active Real-Time Adaptation Rule
+          </span>
+        </div>
+      )}
+
       {/* DUAL-PANE LAYOUT */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* LEFT SIDEBAR PANE (4 Cols) */}
@@ -513,28 +535,110 @@ export const InterviewScreen: React.FC<InterviewScreenProps> = ({
                   </div>
 
                   {/* AI Examiner Evaluation Feedback Bubble */}
-                  <div className="p-4 rounded-xl dark:bg-blue-500/10 bg-blue-50/80 dark:border-blue-500/20 border-blue-200 border text-xs space-y-2 ml-12">
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold dark:text-blue-300 text-blue-800 flex items-center gap-1.5">
+                  <div className={`p-4 rounded-xl text-xs space-y-2.5 ml-12 transition-all ${
+                    record.penaltyApplied || record.score < 50 || (record.errorsIdentified && record.errorsIdentified.length > 0)
+                      ? 'dark:bg-amber-950/20 bg-amber-50/80 dark:border-amber-500/30 border-amber-200 border'
+                      : 'dark:bg-blue-500/10 bg-blue-50/80 dark:border-blue-500/20 border-blue-200 border'
+                  }`}>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="font-extrabold dark:text-blue-300 text-blue-800 flex items-center gap-1.5 text-xs">
                         <FileCheck className="w-4 h-4 text-blue-500" />
-                        Evaluation Result
+                        Interviewer Assessment
                       </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
-                        record.score >= 80 ? 'dark:bg-emerald-500/20 bg-emerald-100 dark:text-emerald-300 text-emerald-800' :
-                        record.score >= 60 ? 'dark:bg-blue-500/20 bg-blue-100 dark:text-blue-300 text-blue-800' :
-                        'dark:bg-amber-500/20 bg-amber-100 dark:text-amber-300 text-amber-800'
-                      }`}>
-                        Score: {record.score}% ({record.evaluationLabel})
-                      </span>
+
+                      <div className="flex items-center gap-2">
+                        {(record.penaltyApplied || record.score < 50 || (record.errorsIdentified && record.errorsIdentified.length > 0)) ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 font-extrabold text-[10px] uppercase tracking-wide">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            Needs Technical Revision
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-extrabold text-[10px] uppercase tracking-wide">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            Verified Concept
+                          </span>
+                        )}
+
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
+                          record.score >= 80 ? 'dark:bg-emerald-500/20 bg-emerald-100 dark:text-emerald-300 text-emerald-800' :
+                          record.score >= 60 ? 'dark:bg-blue-500/20 bg-blue-100 dark:text-blue-300 text-blue-800' :
+                          'dark:bg-amber-500/20 bg-amber-100 dark:text-amber-800 text-amber-900'
+                        }`}>
+                          Score: {record.score}% • {record.evaluationLabel}
+                        </span>
+                      </div>
                     </div>
-                    <p className="dark:text-slate-200 text-slate-700">{record.feedback}</p>
+
+                    <p className="dark:text-slate-200 text-slate-700 leading-relaxed font-medium">{record.feedback}</p>
+
+                    {/* Explicit Technical Errors or Missed Core Mechanics */}
+                    {record.errorsIdentified && record.errorsIdentified.length > 0 && (
+                      <div className="mt-2.5 p-2.5 rounded-lg dark:bg-amber-950/30 bg-amber-100/60 border dark:border-amber-500/30 border-amber-200 space-y-1">
+                        <p className="text-[10px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          Key Technical Gaps / Incorrect Statements:
+                        </p>
+                        <ul className="list-disc list-inside text-[11px] text-amber-900 dark:text-amber-200 space-y-0.5">
+                          {record.errorsIdentified.map((errItem, eIdx) => (
+                            <li key={eIdx}>{errItem}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </React.Fragment>
               ))}
 
+              {/* AI REASONING PATH PROCESSOR WIDGET WHEN EVALUATING */}
+              {isLoading && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="p-4 rounded-2xl dark:bg-purple-950/40 bg-purple-50 dark:border-purple-500/30 border-purple-200 border text-xs space-y-3 shadow-lg shadow-purple-500/10"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-purple-500 text-white animate-pulse">
+                        <Brain className="w-4 h-4" />
+                      </div>
+                      <span className="font-extrabold dark:text-purple-300 text-purple-900">
+                        AI Reasoning &amp; Evaluation Pipeline Active
+                      </span>
+                    </div>
+                    <span className="font-mono text-[10px] text-purple-400 animate-pulse">
+                      Processing Turn {currentQNum}...
+                    </span>
+                  </div>
+
+                  {/* Multi-step progress path */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                    <div className="p-2 rounded-xl dark:bg-white/5 bg-white border dark:border-white/10 border-purple-200 flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="dark:text-slate-300 text-slate-700">Breeth Memory Sync</span>
+                    </div>
+
+                    <div className="p-2 rounded-xl dark:bg-white/5 bg-white border dark:border-purple-500/30 border-purple-300 flex items-center gap-2">
+                      <Activity className="w-3.5 h-3.5 text-purple-400 animate-spin shrink-0" />
+                      <span className="font-bold dark:text-purple-200 text-purple-900">Gemini 3.6 Flash Evaluation</span>
+                    </div>
+
+                    <div className="p-2 rounded-xl dark:bg-white/5 bg-white border dark:border-white/10 border-purple-200 flex items-center gap-2 opacity-70">
+                      <Cpu className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="dark:text-slate-400 text-slate-500">Synthesizing Next Probe</span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
               {/* CURRENT ACTIVE QUESTION BUBBLE */}
-              {currentQ && (
-                <div className="flex items-start gap-3">
+              {currentQ && !isLoading && (
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="flex items-start gap-3"
+                >
                   <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-500 via-indigo-500 to-purple-600 flex items-center justify-center text-white shrink-0 shadow-lg shadow-blue-500/30 animate-pulse">
                     <Sparkles className="w-5 h-5" />
                   </div>
@@ -557,7 +661,7 @@ export const InterviewScreen: React.FC<InterviewScreenProps> = ({
                       {currentQ.questionText}
                     </div>
                   </div>
-                </div>
+                </motion.div>
               )}
 
               <div ref={chatBottomRef} />

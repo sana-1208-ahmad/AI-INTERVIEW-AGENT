@@ -63,6 +63,8 @@ export interface QuestionAnswerRecord {
   followUpTriggered: boolean;
   idealKeyPointsCovered: string[];
   idealKeyPointsMissed: string[];
+  errorsIdentified?: string[];
+  penaltyApplied?: boolean;
   sampleIdealAnswer?: string;
 }
 
@@ -81,6 +83,7 @@ export interface InterviewSession {
   currentQuestion?: InterviewQuestion;
   transcript: QuestionAnswerRecord[];
   interviewerNotes: string;
+  activeSteerConstraint?: string;
   overallScore?: number;
 }
 

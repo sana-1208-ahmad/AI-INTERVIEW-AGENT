@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Users,
   Activity,
@@ -15,9 +16,14 @@ import {
   UserCheck,
   Zap,
   Filter,
-  ExternalLink
+  ExternalLink,
+  Cpu,
+  ShieldCheck,
+  Server,
+  Database
 } from 'lucide-react';
 import { CandidateProfile, FinalReport } from '../types';
+import { TiltCard3D } from './TiltCard3D';
 
 interface DashboardViewProps {
   selectedCandidate: CandidateProfile;
@@ -153,78 +159,141 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 2. THREE HIGH-LEVEL METRIC KPI CARDS */}
+      {/* 2. AI ENGINE MATRIX & SYSTEM PERFORMANCE STATUS */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-2xl dark:bg-slate-900/60 bg-white dark:border-slate-800 border-slate-200 border backdrop-blur-xl shadow-sm text-xs"
+      >
+        <div className="flex items-center gap-2.5 px-2">
+          <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <Cpu className="w-3.5 h-3.5" />
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">LLM Engine</p>
+            <p className="font-mono font-bold dark:text-white text-slate-900 text-[11px] flex items-center gap-1">
+              Gemini 3.6 Flash
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 px-2 border-l dark:border-slate-800 border-slate-200">
+          <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+            <Database className="w-3.5 h-3.5" />
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Memory Index</p>
+            <p className="font-mono font-bold dark:text-white text-slate-900 text-[11px]">
+              Breeth Store (31 Days)
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 px-2 border-l dark:border-slate-800 border-slate-200">
+          <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <Activity className="w-3.5 h-3.5" />
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Inference TTFT</p>
+            <p className="font-mono font-bold text-emerald-400 text-[11px]">
+              142 ms (Real-time)
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 px-2 border-l dark:border-slate-800 border-slate-200">
+          <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <ShieldCheck className="w-3.5 h-3.5" />
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Steerability</p>
+            <p className="font-mono font-bold dark:text-white text-slate-900 text-[11px]">
+              FastMCP Ready
+            </p>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* 3. THREE HIGH-LEVEL METRIC KPI CARDS WITH 3D TILT */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* KPI 1: Total Active Candidates */}
-        <div className="p-6 rounded-2xl dark:bg-slate-800/50 bg-white dark:border-slate-700/50 border-slate-200 border backdrop-blur-xl shadow-lg hover:dark:border-slate-600 hover:border-slate-300 transition-all flex flex-col justify-between space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider dark:text-slate-400 text-slate-500">
-              Total Active Candidates
-            </span>
-            <div className="p-3 rounded-xl dark:bg-blue-500/20 bg-blue-50 text-blue-500 dark:border-blue-500/30 border-blue-200 border">
-              <Users className="w-5 h-5" />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-black dark:text-white text-slate-900 tracking-tight">128</span>
-              <span className="text-xs font-bold text-emerald-500 flex items-center gap-0.5">
-                <TrendingUp className="w-3.5 h-3.5" />
-                +12% this week
+        <TiltCard3D maxTiltDegrees={4}>
+          <div className="p-6 rounded-2xl dark:bg-slate-800/50 bg-white dark:border-slate-700/50 border-slate-200 border backdrop-blur-xl shadow-lg hover:dark:border-slate-600 hover:border-slate-300 transition-all flex flex-col justify-between space-y-4 h-full">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider dark:text-slate-400 text-slate-500">
+                Total Active Candidates
               </span>
+              <div className="p-3 rounded-xl dark:bg-blue-500/20 bg-blue-50 text-blue-500 dark:border-blue-500/30 border-blue-200 border">
+                <Users className="w-5 h-5" />
+              </div>
             </div>
-            <p className="text-[11px] dark:text-slate-400 text-slate-500 mt-1">
-              Active engineering candidates in evaluation pipeline
-            </p>
+            <div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black dark:text-white text-slate-900 tracking-tight">128</span>
+                <span className="text-xs font-bold text-emerald-500 flex items-center gap-0.5">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  +12% this week
+                </span>
+              </div>
+              <p className="text-[11px] dark:text-slate-400 text-slate-500 mt-1">
+                Active engineering candidates in evaluation pipeline
+              </p>
+            </div>
           </div>
-        </div>
+        </TiltCard3D>
 
         {/* KPI 2: In-Progress Interviews */}
-        <div className="p-6 rounded-2xl dark:bg-slate-800/50 bg-white dark:border-slate-700/50 border-slate-200 border backdrop-blur-xl shadow-lg hover:dark:border-slate-600 hover:border-slate-300 transition-all flex flex-col justify-between space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider dark:text-slate-400 text-slate-500">
-              In-Progress Interviews
-            </span>
-            <div className="p-3 rounded-xl dark:bg-purple-500/20 bg-purple-50 text-purple-500 dark:border-purple-500/30 border-purple-200 border">
-              <Activity className="w-5 h-5 animate-pulse" />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-black dark:text-white text-slate-900 tracking-tight">14</span>
-              <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2 py-0.5 rounded-full dark:bg-emerald-500/20 bg-emerald-50 text-emerald-600 dark:text-emerald-300 border dark:border-emerald-500/30 border-emerald-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                Live Sessions
+        <TiltCard3D maxTiltDegrees={4}>
+          <div className="p-6 rounded-2xl dark:bg-slate-800/50 bg-white dark:border-slate-700/50 border-slate-200 border backdrop-blur-xl shadow-lg hover:dark:border-slate-600 hover:border-slate-300 transition-all flex flex-col justify-between space-y-4 h-full">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider dark:text-slate-400 text-slate-500">
+                In-Progress Interviews
               </span>
+              <div className="p-3 rounded-xl dark:bg-purple-500/20 bg-purple-50 text-purple-500 dark:border-purple-500/30 border-purple-200 border">
+                <Activity className="w-5 h-5 animate-pulse" />
+              </div>
             </div>
-            <p className="text-[11px] dark:text-slate-400 text-slate-500 mt-1">
-              Adaptive multi-turn AI interviews taking place now
-            </p>
+            <div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black dark:text-white text-slate-900 tracking-tight">14</span>
+                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2 py-0.5 rounded-full dark:bg-emerald-500/20 bg-emerald-50 text-emerald-600 dark:text-emerald-300 border dark:border-emerald-500/30 border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                  Live Sessions
+                </span>
+              </div>
+              <p className="text-[11px] dark:text-slate-400 text-slate-500 mt-1">
+                Adaptive multi-turn AI interviews taking place now
+              </p>
+            </div>
           </div>
-        </div>
+        </TiltCard3D>
 
         {/* KPI 3: Average Candidate Benchmark */}
-        <div className="p-6 rounded-2xl dark:bg-slate-800/50 bg-white dark:border-slate-700/50 border-slate-200 border backdrop-blur-xl shadow-lg hover:dark:border-slate-600 hover:border-slate-300 transition-all flex flex-col justify-between space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider dark:text-slate-400 text-slate-500">
-              Average Candidate Benchmark
-            </span>
-            <div className="p-3 rounded-xl dark:bg-emerald-500/20 bg-emerald-50 text-emerald-500 dark:border-emerald-500/30 border-emerald-200 border">
-              <Award className="w-5 h-5" />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-black dark:text-white text-slate-900 tracking-tight">84.6%</span>
-              <span className="text-xs font-bold text-blue-500">
-                Top 15% Cohort
+        <TiltCard3D maxTiltDegrees={4}>
+          <div className="p-6 rounded-2xl dark:bg-slate-800/50 bg-white dark:border-slate-700/50 border-slate-200 border backdrop-blur-xl shadow-lg hover:dark:border-slate-600 hover:border-slate-300 transition-all flex flex-col justify-between space-y-4 h-full">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider dark:text-slate-400 text-slate-500">
+                Average Candidate Benchmark
               </span>
+              <div className="p-3 rounded-xl dark:bg-emerald-500/20 bg-emerald-50 text-emerald-500 dark:border-emerald-500/30 border-emerald-200 border">
+                <Award className="w-5 h-5" />
+              </div>
             </div>
-            <p className="text-[11px] dark:text-slate-400 text-slate-500 mt-1">
-              Mean score grounded across 31-day AI engineering curriculum
-            </p>
+            <div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-black dark:text-white text-slate-900 tracking-tight">84.6%</span>
+                <span className="text-xs font-bold text-blue-500">
+                  Top 15% Cohort
+                </span>
+              </div>
+              <p className="text-[11px] dark:text-slate-400 text-slate-500 mt-1">
+                Mean score grounded across 31-day AI engineering curriculum
+              </p>
+            </div>
           </div>
-        </div>
+        </TiltCard3D>
       </div>
 
       {/* 3. SLEEK QUICK LAUNCH INTERVIEW BAR */}

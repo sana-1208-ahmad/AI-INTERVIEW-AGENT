@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Award,
   Download,
@@ -35,6 +36,7 @@ import {
   Tooltip as RechartsTooltip
 } from 'recharts';
 import { FinalReport, QuestionAnswerRecord } from '../types';
+import { TiltCard3D } from './TiltCard3D';
 
 interface InterviewReportViewProps {
   report: FinalReport;

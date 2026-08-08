@@ -143,7 +143,9 @@ async function startServer() {
         feedback: evaluation.feedback,
         followUpTriggered: Boolean(evaluation.followUpProbe),
         idealKeyPointsCovered: evaluation.idealKeyPointsCovered,
-        idealKeyPointsMissed: evaluation.idealKeyPointsMissed
+        idealKeyPointsMissed: evaluation.idealKeyPointsMissed,
+        errorsIdentified: evaluation.errorsIdentified,
+        penaltyApplied: evaluation.penaltyApplied
       };
 
       session.transcript.push(record);
@@ -342,7 +344,8 @@ async function startServer() {
         currentQ,
         userResponse,
         candidate,
-        session.transcript
+        session.transcript,
+        session.activeSteerConstraint
       );
 
       // 2. Record in transcript
@@ -361,7 +364,9 @@ async function startServer() {
         feedback: evaluation.feedback,
         followUpTriggered: Boolean(evaluation.followUpProbe),
         idealKeyPointsCovered: evaluation.idealKeyPointsCovered,
-        idealKeyPointsMissed: evaluation.idealKeyPointsMissed
+        idealKeyPointsMissed: evaluation.idealKeyPointsMissed,
+        errorsIdentified: evaluation.errorsIdentified,
+        penaltyApplied: evaluation.penaltyApplied
       };
 
       session.transcript.push(record);
@@ -424,7 +429,8 @@ async function startServer() {
           candidate,
           session.transcript,
           nextQuestionIndex,
-          session.totalQuestions
+          session.totalQuestions,
+          session.activeSteerConstraint
         );
 
         session.currentQuestion = nextQ;
@@ -443,7 +449,9 @@ async function startServer() {
             feedback: evaluation.feedback,
             follow_up_probe: evaluation.followUpProbe,
             key_points_covered: evaluation.idealKeyPointsCovered,
-            key_points_missed: evaluation.idealKeyPointsMissed
+            key_points_missed: evaluation.idealKeyPointsMissed,
+            errors_identified: evaluation.errorsIdentified,
+            penalty_applied: evaluation.penaltyApplied
           },
           next_question: {
             question_number: nextQuestionIndex + 1,
@@ -490,6 +498,35 @@ async function startServer() {
     });
   };
 
+  // Handler: Steer Interview Engine (Judge Steerability)
+  const handleSteerInterview = (req: express.Request, res: express.Response) => {
+    const { session_id, interview_id, steer_constraint, constraint, steer_prompt } = req.body;
+    const effectiveId = session_id || interview_id;
+    const steerText = steer_constraint || constraint || steer_prompt;
+
+    if (!effectiveId) {
+      return res.status(400).json({ error: "session_id or interview_id parameter is required" });
+    }
+    if (!steerText) {
+      return res.status(400).json({ error: "steer_constraint parameter is required" });
+    }
+
+    const session = activeSessions.get(effectiveId);
+    if (!session) {
+      return res.status(404).json({ error: "Interview session not found or expired" });
+    }
+
+    session.activeSteerConstraint = steerText;
+    console.log(`[STEER ENGINE] Session ${session.id} updated with constraint: "${steerText}"`);
+
+    return res.json({
+      status: "success",
+      session_id: session.id,
+      active_steer_constraint: steerText,
+      message: `Steer constraint "${steerText}" successfully injected into active interview engine.`
+    });
+  };
+
   // Register Standard Endpoints per Technical Specification
   app.post("/api/interview/start", handleStartInterview);
   app.post("/api/v1/interview/start", handleStartInterview);
@@ -497,6 +534,9 @@ async function startServer() {
   app.post("/api/interview/respond", handleRespondInterview);
   app.post("/api/interview/answer", handleRespondInterview);
   app.post("/api/v1/interview/answer", handleRespondInterview);
+
+  app.post("/api/interview/steer", handleSteerInterview);
+  app.post("/api/v1/interview/steer", handleSteerInterview);
 
   app.get("/api/interview/report/:session_id", handleGetReport);
   app.get("/api/v1/interview/:id/report", handleGetReport);
