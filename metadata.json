@@ -1,0 +1,6 @@
+{
+  "name": "ABTalks AI Interview Agent",
+  "description": "Personalized technical interview platform for the ABTalks 31-day Enterprise AI Engineering Cohort with adaptive multi-turn evaluation, candidate analytics, and real-time report generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
